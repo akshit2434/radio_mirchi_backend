@@ -27,15 +27,17 @@ websocket connected
 with push to talk: (this is what we are doing)
     user logs in (handled by nextjs).
     gets brief about mission by:
-        -> api call to generate story and task and keep stuff ready (asynchronously in mongodb with status=processing till finished, then status = completed).
-            -> return the brief about task
+        -> Making a POST request to `/api/v1/create_mission`.
+        -> The API synchronously generates the initial mission details (story, characters, etc.) and saves it to the database with `status: "stage1"`.
+        -> The API immediately returns this initial mission data.
+        -> In the background, the server starts generating a unified dialogue prompt for the next phase, and updates the mission status to `status: "stage2"` when complete.
 
     executes command to join into fm freq (let's say 93.5)
-        -> api call received. poll mongodb every sec till status changes from processing to finished.
-            -> connect websocket
+        -> The client polls the `GET /api/v1/mission_status/{mission_id}` endpoint until the `status` field becomes `"stage2"`.
+        -> Once the status is `"stage2"`, the client has the dialogue prompt and can connect to the WebSocket for the interactive phase.
 
     websocket connected
-        -> send _name_ of each caller.
+        -> send _name_ of each caller. (no need as already stored in mongo db)
         -> main loop until timelimit:
             -> if current dialogue segment is a pause for user to speak:
                 -> wait up to 10 seconds for user to press and hold the "Talk" button.
@@ -56,7 +58,7 @@ with push to talk: (this is what we are doing)
 ## Technology Stack & Core Mechanics
 
 *   **Web Framework**: FastAPI will be used for the backend API. It's modern, fast, and has great support for Pydantic models which we'll use for structured data.
-*   **Language Model (LLM)**: We will use Google's `gemini-2.5-flash` via the `google-genai` Python library. This will be responsible for generating the story, propaganda, etc. for dialogues and awakened user's change, etc , we will use `gemini-2.5-flash-lite-preview-06-17` as it is much faster which is a requirement for instantaneous responses.
+*   **Language Model (LLM)**: We are using Google's `gemini-1.5-flash-latest` model via the `google-genai` Python library for all content generation tasks, including the initial mission and the dialogue prompts.
 *   **Text-to-Speech (TTS) & Speech-to-Text (STT)**: We will use the `deepgram-sdk` for Python for all speech synthesis and recognition tasks.
 *   **Database**: MongoDB will be used for storing mission data, status, and context.
 
