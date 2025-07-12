@@ -39,6 +39,7 @@ class GameSession:
         self.speakers: List[Speaker] = []
         self.dialogue_history = ""
         self.mission_context = ""
+        self.proof_sentences: List[str] = []
         self._is_active = True
         self._main_task: Optional[asyncio.Task] = None
         self._ready_for_next = asyncio.Event()
@@ -54,6 +55,7 @@ class GameSession:
         
         self.speakers = mission.generation_result.speakers
         self.mission_context = mission.dialogue_generator_prompt
+        self.proof_sentences = mission.generation_result.proof_sentences
         
         self._ready_for_next.set() # Allow the first dialogue to start immediately
         self._main_task = asyncio.create_task(self._dialogue_and_speaking_loop())
@@ -90,7 +92,7 @@ class GameSession:
                 if self.dialogue_queue.empty():
                     print("[GameSession] Dialogue queue empty. Generating new batch...")
                     new_dialogues = await asyncio.to_thread(
-                        generate_dialogue, self.mission_context, self.dialogue_history
+                        generate_dialogue, self.mission_context, self.dialogue_history, self.proof_sentences
                     )
                     print(f"[GameSession] Generated dialogue batch size: {len(new_dialogues)}")
                     
