@@ -1,5 +1,5 @@
-import google.generativeai as genai
-import json
+from google import genai
+from google.genai import types
 from app.core.config import settings
 from app.schemas.propaganda import Propaganda
 
@@ -7,45 +7,55 @@ class LLMServiceError(Exception):
     """Custom exception for LLM service errors."""
     pass
 
-genai.configure(api_key=settings.GOOGLE_API_KEY)
-
-model = genai.GenerativeModel('gemini-2.5-flash-lite-preview-06-17')
-
 def generate_propaganda(topic: str) -> Propaganda:
     """
-    Generates propaganda content using the Gemini LLM.
+    Generates propaganda content using Gemini LLM with structured output,
+    following the provided client-based example.
     Raises LLMServiceError on failure.
     """
-    prompt = f"""
-    You are a creative writer for a dystopian radio show. Your task is to create a piece of propaganda on the following topic: "{topic}"
+    prompt = ('''
+    You are a creative plot maker for a dystopian radio show. Your task is to create a piece of propaganda on the following topic in simple english: "{topic}"
 
     Please generate the following:
-    1.  A brief summary of the propaganda (2-3 sentences).
-    2.  A list of speakers for the radio show. There should be between 1 and 4 speakers. For each speaker, provide a name and a gender.
-    3.  An initial number of listeners for the show. This should be a realistic number for a radio broadcast, depending on the topic.
-
-    Please provide the output in a valid JSON format, like this example:
-    {{
-        "summary": "A new government program promises to enhance security and prosperity for all citizens by monitoring communications. It is presented as a necessary step for safety and unity.",
-        "speakers": [
-            {{"name": "General Thorne", "gender": "Male"}},
-            {{"name": "Dr. Aris", "gender": "Female"}}
-        ],
-        "initial_listeners": 15000
-    }}
-    """
+    1.  A brief summary of the propaganda in easy english (4-5 sentences).
+    2.  A list of speakers for the radio show. There should be between 1 and 4 speakers. For each speaker, provide a name and a gender. The radio show hosts can be but are not neccessarily the elites or the original speakers. it can instead be a group of people who are in favour and sharing their opinions. Use proper names like "John Doe", "Jane Smith", etc. 
+    3.  An initial number of listeners for the show. This should be a realistic number for a radio broadcast, depending on the topic. range between 000 and 5000 listeners.
+    
+    NOTE: The language should be simple and easy to understand, as if explaining to a 10-year-old. The propaganda should be persuasive and engaging, suitable for a radio broadcast.''')
 
     try:
-        response = model.generate_content(prompt)
-        cleaned_json = response.text.strip().replace("```json", "").replace("```", "").strip()
-        propaganda_data = json.loads(cleaned_json)
+        client = genai.Client(api_key=settings.GOOGLE_API_KEY)
 
-        return Propaganda(
-            summary=propaganda_data["summary"],
-            speakers=propaganda_data["speakers"],
-            initial_listeners=propaganda_data["initial_listeners"],
+        contents = [
+            types.Content(
+                role="user",
+                parts=[
+                    types.Part.from_text(text=prompt),
+                ],
+            ),
+        ]
+
+        generate_content_config = types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=Propaganda,
+            thinking_config=types.ThinkingConfig(thinking_budget=0)
         )
-    except (json.JSONDecodeError, KeyError) as e:
-        raise LLMServiceError(f"Failed to parse LLM response: {e}")
+
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=contents,
+            config=generate_content_config,
+        )
+
+        if hasattr(response, 'parsed') and response.parsed:
+            # Validate and cast the parsed response to our Pydantic model
+            if isinstance(response.parsed, Propaganda):
+                return response.parsed
+            elif isinstance(response.parsed, dict):
+                return Propaganda.model_validate(response.parsed)
+        
+        raw_text = response.text if hasattr(response, 'text') else 'No text in response'
+        raise LLMServiceError(f"LLM did not return a valid parsed Propaganda object. Raw output: {raw_text}")
+
     except Exception as e:
         raise LLMServiceError(f"An unexpected error occurred with the LLM service: {e}")
