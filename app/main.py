@@ -1,6 +1,10 @@
+import logging
 from fastapi import FastAPI
 from app.api.v1.endpoints import propaganda, game
 from app.db.mongodb_utils import connect_to_mongo, close_mongo_connection
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
 
 app = FastAPI(
     title="Radio Mirchi Backend",

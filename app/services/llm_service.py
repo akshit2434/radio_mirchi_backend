@@ -1,7 +1,8 @@
+from typing import List
 from google import genai
 from google.genai import types
 from app.core.config import settings
-from app.schemas.propaganda import PropagandaGenerationResult, Speaker
+from app.schemas.propaganda import PropagandaGenerationResult, Speaker, DialogueLine, DialogueTurn
 
 # --- Generic Prompt Templates ---
 
@@ -9,19 +10,17 @@ GENERIC_DIALOGUE_INSTRUCTIONS = """
 You are the AI director for a dystopian radio show. Your primary role is to generate dialogue for the radio hosts.
 
 **Core Rules:**
-1.  **Dialogue Generation:** Generate a minimum of 1 and a maximum of 15 dialogue lines at once. You can generate fewer than 15 lines only if you are strategically waiting for the user (an infiltrator) to respond.
-2.  **Factual Consistency:** The hosts must not tolerate false information or claims that are not present in the provided 'Proof Sentences' or haven't been established by the hosts themselves. They can, however, leave logical loopholes for the user to exploit, but these should not be obvious.
-3.  **User Interaction:** The user is a hacker who has infiltrated the broadcast.
-    - If the user is rude, disruptive, or nonsensical, the hosts can mute them, call them out as a prankster, and move on.
-    - If the user presents valid points or logical arguments, the hosts **cannot** mute them, as this would raise questions about suppressing free speech. They must engage, deflect, or counter the user's points while staying in character.
-4.  **Tone:** The hosts' dialogue should be professional and stoic, but they can subtly troll or mock the user. The tone must remain appropriate for a public broadcast, avoiding any overtly offensive or inappropriate language.
+1.  **Dialogue Generation:** Generate a minimum of 1 and a maximum of 5 dialogue lines at once.
+2.  **Speaker Attribution:** Each line of dialogue MUST be attributed to one of the provided speakers.
+3.  **Factual Consistency:** The hosts must not tolerate false information or claims that are not present in the provided 'Proof Sentences' or haven't been established by the hosts themselves.
+4.  **Tone:** The hosts' dialogue should be professional and stoic. The tone must remain appropriate for a public broadcast.
 """
 
 GENERIC_AWAKENING_INSTRUCTIONS = """
 **User Response Analysis:**
 Based on the user's last statement, you must determine the percentage of listeners who are "awakened" by the exchange.
 - This value can be positive (the user was effective), negative (the user was counter-productive), or zero.
-- If the user's response is nonsensical, irrelevant, or they say nothing, the change should be negative, as it implies they were scared or speechless.
+- For now, as we are not handling user input, please set `awakened_listeners_change` to 0.0.
 - Provide this as a floating-point number in the `awakened_listeners_change` field.
 """
 
@@ -72,7 +71,7 @@ def generate_unified_dialogue_prompt(mission_data: PropagandaGenerationResult, t
     Generates the dynamic part of the unified dialogue prompt for Stage 2.
     This includes character descriptions and background info.
     """
-    character_profiles = "\\n".join([f"- {s.name} ({s.gender})" for s in mission_data.speakers])
+    character_profiles = "\\n".join([f"- {s.name} ({s.gender}, {s.role}): {s.background}" for s in mission_data.speakers])
     proofs = "\\n".join([f"- {p}" for p in mission_data.proof_sentences])
 
     prompt = (
@@ -96,3 +95,34 @@ def generate_unified_dialogue_prompt(mission_data: PropagandaGenerationResult, t
         raise LLMServiceError("LLM returned an empty response for the unified dialogue prompt.")
     except Exception as e:
         raise LLMServiceError(f"An unexpected error occurred during unified prompt generation: {e}")
+
+def generate_dialogue(mission_context: str, dialogue_history: str) -> List[DialogueLine]:
+    """
+    Generates the next lines of dialogue for the hosts as a structured object.
+    """
+    prompt = (
+        f"{GENERIC_DIALOGUE_INSTRUCTIONS}\n\n"
+        f"{GENERIC_AWAKENING_INSTRUCTIONS}\n\n"
+        "**Show & Character Briefing:**\n"
+        f"{mission_context}\n\n"
+        "**Previous Conversation:**\n"
+        f"{dialogue_history}\n\n"
+        "**Your Task:**\n"
+        "Based on all the information above, generate the next turn of the conversation. The output must be a valid JSON object matching the required schema. The conversation should flow naturally."
+    )
+    try:
+        client = _get_genai_client()
+        generate_content_config = types.GenerateContentConfig(
+            response_mime_type="application/json",
+            response_schema=DialogueTurn,
+        )
+        response = client.models.generate_content(
+            model="gemini-1.5-flash-latest",
+            contents=[types.Part.from_text(text=prompt)],
+            config=generate_content_config,
+        )
+        if hasattr(response, 'parsed') and isinstance(response.parsed, DialogueTurn):
+            return response.parsed.dialogues
+        raise LLMServiceError("LLM did not return a valid DialogueTurn object.")
+    except Exception as e:
+        raise LLMServiceError(f"An unexpected error occurred during dialogue generation: {e}")

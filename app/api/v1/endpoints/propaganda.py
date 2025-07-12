@@ -1,3 +1,4 @@
+import logging
 import asyncio
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from uuid import UUID
@@ -35,8 +36,10 @@ async def generate_and_store_unified_prompt(mission: PropagandaMission, db: Asyn
         await propaganda_db.update_propaganda_mission(mission.id, update_data, db)
 
     except llm_service.LLMServiceError as e:
+        logging.error(f"Stage 2 failed for mission {mission.id} due to LLMServiceError: {e}", exc_info=True)
         await propaganda_db.update_propaganda_mission(mission.id, {"status": "stage2_failed"}, db)
     except Exception as e:
+        logging.error(f"Stage 2 failed for mission {mission.id} due to unexpected error: {e}", exc_info=True)
         await propaganda_db.update_propaganda_mission(mission.id, {"status": "stage2_failed"}, db)
 
 
@@ -77,8 +80,10 @@ async def create_mission(
         return mission
 
     except llm_service.LLMServiceError as e:
+        logging.exception(f"LLM service error during mission creation: {e}")
         raise HTTPException(status_code=502, detail=f"LLM service error: {e}")
     except Exception as e:
+        logging.exception(f"An unexpected error occurred during mission creation: {e}")
         raise HTTPException(status_code=500, detail=f"An unexpected error occurred: {e}")
 
 
