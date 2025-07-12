@@ -58,7 +58,7 @@ with push to talk: (this is what we are doing)
 ## Technology Stack & Core Mechanics
 
 *   **Web Framework**: FastAPI will be used for the backend API. It's modern, fast, and has great support for Pydantic models which we'll use for structured data.
-*   **Language Model (LLM)**: We are using Google's `gemini-1.5-flash-latest` model via the `google-genai` Python library for all content generation tasks, including the initial mission and the dialogue prompts.
+*   **Language Model (LLM)**: We are using Google's `gemini-2.5-flash` model via the `google-genai` Python library for all content generation tasks, including the initial mission. For dialogue prompts we'll use `gemini-2.5-flash-lite-preview-06-17` for fastest response.
 *   **Text-to-Speech (TTS) & Speech-to-Text (STT)**: We will use the `deepgram-sdk` for Python for all speech synthesis and recognition tasks.
 *   **Database**: MongoDB will be used for storing mission data, status, and context.
 
