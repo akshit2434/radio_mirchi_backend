@@ -1,99 +1,65 @@
 from google import genai
 from google.genai import types
 from app.core.config import settings
-from app.schemas.propaganda import Propaganda
+from app.schemas.propaganda import PropagandaGenerationResult, Speaker
 
 class LLMServiceError(Exception):
     """Custom exception for LLM service errors."""
     pass
 
-def generate_propaganda(topic: str) -> Propaganda:
+def _get_genai_client():
+    """Initializes and returns a GenAI client."""
+    return genai.Client(api_key=settings.GOOGLE_API_KEY)
+
+def generate_initial_propaganda(topic: str) -> PropagandaGenerationResult:
     """
-    Generates propaganda content using Gemini LLM with structured output,
-    following the provided client-based example.
-    Raises LLMServiceError on failure.
+    Generates the initial propaganda content (Stage 1).
     """
     prompt = (
-        f"You are a creative plot maker for a dystopian radio show. "
-        f"Your task is to create a piece of propaganda on the following topic in simple English: \"{topic}\"\n\n"
-        "Please generate the following:\n"
-        "1. A brief summary of the propaganda in easy English (4-5 sentences).\n"
-        "2. A list of about 1-5 sentences that are proof or evidence that the topic is not beneficial but instead is a propaganda. This should not be general opinions but instead proof like statistics, facts, or quote, mistakes, leaks, info from experts.\n"
-        "3. A list of speakers for the radio show. There should be between 1 and 4 speakers. For each speaker, provide a name and a gender. "
-        "The radio show hosts can be but are not necessarily the elites or the original speakers. It can instead be a group of people who are in favour and sharing their opinions. "
-        "Use proper names like \"John Doe\", \"Jane Smith\", etc.\n"
-        "4. An initial number of listeners for the show. This should be a realistic number for a radio broadcast, depending on the topic. Range between 100 and 5000 listeners.\n\n"
-        "This radio is about pushing a propaganda, so the speakers should be biased towards the topic. The speakers of the podcast and the listeners are related as the bigger or more popular the speakers, the more listeners it has. "
-        "NOTE: The language should be simple and easy to understand, as if explaining to a 10-year-old. "
-        "The propaganda should be persuasive and engaging, suitable for a radio broadcast."
+        "You are a creative writer for a dystopian radio show. "
+        f"Your task is to create the initial concept for a piece of propaganda on the topic: \"{topic}\".\n"
+        "Generate the following:\n"
+        "- A brief summary (2-3 sentences).\n"
+        "- A list of 3-5 'proof sentences' that act as talking points or evidence for the propaganda. Put realistic factual evidence or statistics here, not moral points or opinions.\n"
+        "- A list of 1-4 speakers, providing only their name and gender.\n"
+        "- An initial number of listeners for the show (a realistic number for a radio broadcast), between 100 to 5000."
+        "\nThe more stronger/famous the speakers, the more listeners there will be."
     )
-
     try:
-        client = genai.Client(api_key=settings.GOOGLE_API_KEY)
-
-        contents = [
-            types.Content(
-                role="user",
-                parts=[
-                    types.Part.from_text(text=prompt),
-                ],
-            ),
-        ]
-
+        client = _get_genai_client()
         generate_content_config = types.GenerateContentConfig(
             response_mime_type="application/json",
-            response_schema=Propaganda,
-            thinking_config=types.ThinkingConfig(thinking_budget=500)
+            response_schema=PropagandaGenerationResult,
         )
-
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
-            contents=contents,
+            model="gemini-1.5-flash-latest",
+            contents=[types.Part.from_text(text=prompt)],
             config=generate_content_config,
         )
-
-        if hasattr(response, 'parsed') and response.parsed:
-            # Validate and cast the parsed response to our Pydantic model
-            if isinstance(response.parsed, Propaganda):
-                return response.parsed
-            elif isinstance(response.parsed, dict):
-                return Propaganda.model_validate(response.parsed)
-        
-        raw_text = response.text if hasattr(response, 'text') else 'No text in response'
-        raise LLMServiceError(f"LLM did not return a valid parsed Propaganda object. Raw output: {raw_text}")
-
+        if hasattr(response, 'parsed') and isinstance(response.parsed, PropagandaGenerationResult):
+            return response.parsed
+        raise LLMServiceError("LLM did not return a valid PropagandaGenerationResult object.")
     except Exception as e:
-        raise LLMServiceError(f"An unexpected error occurred with the LLM service: {e}")
-    
-#Sample output:
-sample_output={
-  "summary": "Today, we're talking about the incredible benefits of the new National Digital Credit system. It's designed to make your life simpler and more secure by replacing old-fashioned cash with easy, digital transactions. Imagine never losing your wallet again, or instantly sending money to anyone, anywhere, with just a tap! This system isn't just convenient; it's a giant leap forward for financial freedom, ensuring every transaction is safe and transparent for all citizens. Join us as we explore how this amazing technology is paving the way for a brighter, more efficient future for everyone.",
-  "proof_sentences": [
-    "A leaked document from the Ministry of Economic Oversight revealed that the new digital credit system allows for instant, automatic deductions for 'social contributions' directly from citizen accounts without prior consent.",
-    "During a trial in Sector Gamma, a software glitch mistakenly froze the digital credits of over 10,000 citizens for three days, preventing them from buying food or essential supplies.",
-    "Former government data analyst, Elias Vance, stated in an underground broadcast that the system's 'security' features are primarily designed for state surveillance, tracking every purchase to build detailed profiles on citizens' habits and loyalties.",
-    "A recent independent audit found that the 'transparent' ledger system is only accessible to authorized government agencies, making it impossible for citizens to verify their own transaction data or dispute deductions."
-  ],
-  "speakers": [
-    {
-      "name": "Arthur Sterling",
-      "gender": "male",
-      "color": "#AC3A3A",
-      "description": "Arthur Sterling is a charismatic public relations specialist, known for his smooth voice and unwavering confidence. He works closely with the Ministry of Progress, often appearing on state-sponsored media to promote new government initiatives as beneficial advancements for the public good, skillfully blending factual information with persuasive rhetoric to ensure public compliance."
-    },
-    {
-      "name": "Dr. Eleanor Vance",
-      "gender": "female",
-      "color": "#34BF50",
-      "description": "Dr. Eleanor Vance is a renowned digital economist and public speaker, often invited by the state to explain complex financial systems in an easy-to-understand manner. She is a strong advocate for the National Digital Credit system, emphasizing its efficiency and security benefits while subtly downplaying any potential drawbacks, presenting herself as an objective expert dedicated to societal improvement."
-    },
-    {
-      "name": "Captain Marcus 'Ace' Riley",
-      "gender": "male",
-      "color": "#9C61B3",
-      "description": "Captain Marcus 'Ace' Riley is a retired military officer and a celebrated national hero. He now serves as a media personality, using his decorated past and commanding presence to endorse new government policies, particularly those related to security and national unity. He believes wholeheartedly in the state's vision and uses his platform to inspire trust and loyalty among the populace."
-    }
-  ],
-  "initial_listeners": 3800,
-  "awakened_listeners": 0
-}
+        raise LLMServiceError(f"An unexpected error occurred during initial propaganda generation: {e}")
+
+def generate_speaker_system_prompt(topic: str, speaker: Speaker) -> str:
+    """
+    Generates a detailed system prompt for a radio show speaker (Stage 2).
+    """
+    prompt = (
+        "You are a script director for a dystopian radio show. Your task is to create a detailed system prompt for an AI voice actor.\n"
+        f"The topic of the radio segment is: \"{topic}\".\n"
+        f"The speaker's name is {speaker.name} ({speaker.gender}).\n\n"
+        "Based on this, generate a comprehensive system prompt. The prompt should define their personality, their role in the broadcast (e.g., host, expert, caller), their likely perspective on the topic, their tone of voice, and how they should interact with others. It should be detailed enough for an LLM to generate natural, in-character dialogue."
+    )
+    try:
+        client = _get_genai_client()
+        response = client.models.generate_content(
+            model="gemini-1.5-flash-latest",
+            contents=[types.Part.from_text(text=prompt)],
+        )
+        if response.text:
+            return response.text
+        raise LLMServiceError(f"LLM returned an empty response for system prompt generation for {speaker.name}.")
+    except Exception as e:
+        raise LLMServiceError(f"An unexpected error occurred during system prompt generation for {speaker.name}: {e}")

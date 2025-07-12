@@ -4,6 +4,7 @@ websockets
 pymongo
 python-dotenv
 deepgram-sdk
-google-genai
+google-genai>=2.14.1
 python-multipart
 pydantic
+motor
