@@ -1,6 +1,7 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from uuid import UUID
 from app.services.game_manager import manager, GameSession, game_sessions
+import asyncio
 
 router = APIRouter()
 
@@ -19,7 +20,7 @@ async def websocket_endpoint(websocket: WebSocket, mission_id: UUID):
 
         # Keep the connection alive, listening for the client to disconnect.
         while True:
-            await websocket.receive_text() # This will block until the connection is closed.
+            await asyncio.sleep(1)  # Non-blocking, just keeps the handler alive
             
     except WebSocketDisconnect:
         print(f"Client disconnected from mission {mission_id}. Cleaning up session.")

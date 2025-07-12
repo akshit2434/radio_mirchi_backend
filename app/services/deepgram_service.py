@@ -1,13 +1,6 @@
-import asyncio
 import random
-import threading
-import traceback
-from deepgram import (
-    DeepgramClient,
-    LiveOptions,
-    LiveTranscriptionEvents,
-    SpeakWebSocketEvents,
-)
+import httpx
+from deepgram import DeepgramClient, LiveOptions
 from app.core.config import settings
 
 # --- Voice Models ---
@@ -33,72 +26,54 @@ class DeepgramService:
     A service to interact with Deepgram's APIs for Text-to-Speech and Speech-to-Text.
     """
     def __init__(self):
+        # The DeepgramClient is still useful for other methods like transcription
         self.client = DeepgramClient(settings.DEEPGRAM_API_KEY)
+        self.http_client = httpx.AsyncClient()
+        self.tts_url = "https://api.deepgram.com/v1/speak"
 
     async def text_to_speech_stream(self, text: str, gender: str):
         """
-        Connects to Deepgram's TTS WebSocket, sends text, and yields audio chunks.
+        Streams TTS audio from Deepgram using a direct async HTTP request.
         """
         if gender.lower() == 'male':
             model = random.choice(MALE_VOICES)
         else:
             model = random.choice(FEMALE_VOICES)
-        
-        print(f"Using voice model: {model}")
 
-        options = {
-            "model": model,
-            "encoding": "linear16",
-            "sample_rate": 24000,
+        print(f"[DeepgramService] Requesting TTS for: '{text[:60]}...' (model: {model})")
+
+        headers = {
+            "Authorization": f"Token {settings.DEEPGRAM_API_KEY}",
+            "Content-Type": "application/json"
         }
         
-        dg_connection = self.client.speak.websocket.v("1")
-        audio_queue = asyncio.Queue()
+        params = {
+            "model": model,
+            "encoding": "linear16",
+            "sample_rate": 24000
+        }
         
-        def on_audio_data(connection, data, **kwargs):
-            print(f"[DeepgramService] Received audio chunk from Deepgram: {len(data)} bytes, head={data[:8].hex() if isinstance(data, bytes) else 'N/A'}")
-            audio_queue.put_nowait(data)
+        payload = {"text": text}
 
-        def on_close(connection, code, **kwargs):
-            reason = kwargs.get("reason", "Reason not provided.")
-            print(f"Deepgram connection closed gracefully: code={code}, reason='{reason}'")
-            audio_queue.put_nowait(None)
+        try:
+            async with self.http_client.stream("POST", self.tts_url, headers=headers, params=params, json=payload, timeout=60) as response:
+                # Check for errors
+                if response.is_error:
+                    error_body = await response.aread()
+                    print(f"[DeepgramService] Error from API: {response.status_code} - {error_body.decode()}")
+                    response.raise_for_status()
 
-        def on_error(connection, error, **kwargs):
-            print(f"Deepgram error: {error}")
-            print(traceback.format_exc())
-            audio_queue.put_nowait(None)
+                print(f"[DeepgramService] Success: {response.status_code}. Streaming audio...")
+                async for chunk in response.aiter_bytes():
+                    yield chunk
+                print("[DeepgramService] Audio stream finished.")
 
-        dg_connection.on(SpeakWebSocketEvents.AudioData, on_audio_data)
-        dg_connection.on(SpeakWebSocketEvents.Close, on_close)
-        dg_connection.on(SpeakWebSocketEvents.Error, on_error)
-
-        def run_deepgram_tts():
-            try:
-                if dg_connection.start(options) is False:
-                    print("Failed to start Deepgram TTS connection")
-                    audio_queue.put_nowait(None)
-                    return
-                
-                dg_connection.send_text(text)
-                # dg_connection.finish() # This is handled by the Close event now
-            except Exception as e:
-                print(f"Unhandled error in Deepgram TTS thread: {e}")
-                print(traceback.format_exc())
-                audio_queue.put_nowait(None)
-
-        thread = threading.Thread(target=run_deepgram_tts)
-        thread.start()
-
-        while True:
-            chunk = await audio_queue.get()
-            if chunk is None:
-                print("[DeepgramService] End of audio stream from Deepgram.")
-                break
-            print(f"[DeepgramService] Yielding audio chunk: {len(chunk)} bytes, head={chunk[:8].hex() if isinstance(chunk, bytes) else 'N/A'}")
-            yield chunk
-        
-        thread.join()
+        except httpx.RequestError as e:
+            print(f"[DeepgramService] HTTP Request Error: {e}")
+        except Exception as e:
+            print(f"[DeepgramService] An unexpected error occurred: {e}")
+        finally:
+            print(f"[DeepgramService] TTS function finished for: '{text[:60]}...'")
 
     def get_live_transcriber(self, on_transcript_callback):
         """
