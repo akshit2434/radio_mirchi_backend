@@ -143,14 +143,26 @@ async def poll_and_connect(session: aiohttp.ClientSession):
             while True:
                 try:
                     message = await websocket.recv()
+                    
                     if isinstance(message, bytes):
                         chunk_size = len(message)
                         total_bytes += chunk_size
                         print(f"[DATA]    Received audio chunk of size: {chunk_size} bytes.")
                         audio_q.put(message)
-                    else:
-                        print(f"[WARN]    Received non-audio message: {message}")
-                
+
+                    elif isinstance(message, str):
+                        data = json.loads(message)
+                        if data.get("status") == "dialogue_end":
+                            print("[SIGNAL]  Received end-of-dialogue signal from server.")
+                            
+                            # Wait for the audio player to finish playing all buffered audio.
+                            print("[PLAYER]  Waiting for audio queue to empty...")
+                            while not audio_q.empty():
+                                await asyncio.sleep(0.1) # Yield control to let the player work
+                            
+                            print("[SIGNAL]  Audio queue is empty. Sending 'ready_for_next' to server.")
+                            await websocket.send(json.dumps({"action": "ready_for_next"}))
+
                 except websockets.exceptions.ConnectionClosed:
                     print("\n[INFO]    WebSocket connection closed by the server.")
                     break

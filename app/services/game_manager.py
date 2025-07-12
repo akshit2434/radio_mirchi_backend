@@ -1,4 +1,5 @@
 import asyncio
+import json
 from fastapi import WebSocket
 from uuid import UUID
 from typing import Dict, List, Optional
@@ -40,6 +41,7 @@ class GameSession:
         self.mission_context = ""
         self._is_active = True
         self._main_task: Optional[asyncio.Task] = None
+        self._ready_for_next = asyncio.Event()
 
     async def start(self):
         """Initializes and starts the main dialogue and speaking loop."""
@@ -53,6 +55,7 @@ class GameSession:
         self.speakers = mission.generation_result.speakers
         self.mission_context = mission.dialogue_generator_prompt
         
+        self._ready_for_next.set() # Allow the first dialogue to start immediately
         self._main_task = asyncio.create_task(self._dialogue_and_speaking_loop())
 
     async def stop(self):
@@ -67,14 +70,23 @@ class GameSession:
                 pass # Expected on cancellation
         print("Game session task cancelled successfully.")
 
+    def signal_ready_for_next(self):
+        """Signals that the client is ready for the next dialogue."""
+        if not self._ready_for_next.is_set():
+            print(f"[GameSession] Client is ready. Signalling for next dialogue.")
+            self._ready_for_next.set()
+
     async def _dialogue_and_speaking_loop(self):
         """
         Main loop that generates dialogue and streams it sequentially.
-        It ensures a new dialogue batch is only generated after the previous one
-        has been completely streamed to the client.
+        It waits for a signal from the client before starting the next dialogue.
         """
         while self._is_active:
             try:
+                # Wait for the client to be ready before processing the next dialogue.
+                await self._ready_for_next.wait()
+                self._ready_for_next.clear() # Reset for the next wait cycle.
+
                 if self.dialogue_queue.empty():
                     print("[GameSession] Dialogue queue empty. Generating new batch...")
                     new_dialogues = await asyncio.to_thread(
@@ -83,15 +95,14 @@ class GameSession:
                     print(f"[GameSession] Generated dialogue batch size: {len(new_dialogues)}")
                     
                     if not new_dialogues:
-                        await asyncio.sleep(5) # Avoid busy-loop if generation fails
+                        await asyncio.sleep(5)
+                        self._ready_for_next.set() # Re-set if generation fails to avoid deadlock
                         continue
                         
                     for dialogue in new_dialogues:
                         self.dialogue_history += f"\n{dialogue.speaker_name}: {dialogue.line}"
                         await self.dialogue_queue.put(dialogue)
 
-                # Get the next line from the queue. This will wait if the queue is
-                # currently empty but a generation task is running.
                 dialogue_line = await self.dialogue_queue.get()
                 
                 speaker_name = dialogue_line.speaker_name
@@ -101,23 +112,24 @@ class GameSession:
                 
                 speaker_gender = next((s.gender for s in self.speakers if s.name == speaker_name), "female")
                 
-                # Stream the audio to the client. This block ensures that if the
-                # client disconnects at any point, the session is stopped gracefully.
                 try:
                     tts_stream = deepgram_service.text_to_speech_stream(line_text, speaker_gender)
                     async for chunk in tts_stream:
-                        # This send operation will raise an exception if the client has disconnected.
                         await self.manager.active_connections[self.mission_id].send_bytes(chunk)
                     
                     print(f"[GameSession] Finished streaming TTS for line: '{line_text}'")
+                    
+                    # Signal to the client that this dialogue is finished.
+                    end_of_dialogue_signal = json.dumps({"status": "dialogue_end"})
+                    await self.manager.active_connections[self.mission_id].send_text(end_of_dialogue_signal)
+                    print("[GameSession] Sent end-of-dialogue signal.")
+
                     self.dialogue_queue.task_done()
 
                 except Exception as e:
-                    # This block catches errors during TTS or sending, which are often
-                    # caused by client disconnections (e.g., KeyError, RuntimeError).
                     print(f"Error during streaming for mission {self.mission_id}: {e}. Stopping session.")
                     await self.stop()
-                    return # Exit the task completely
+                    return
 
             except asyncio.CancelledError:
                 print("Dialogue and speaking loop cancelled.")
