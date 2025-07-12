@@ -27,8 +27,9 @@ class ConnectionManager:
 
 class GameSession:
     """
-    Encapsulates the state and logic for a single mission's game session,
-    creating a continuous dialogue stream.
+    Encapsulates the state and logic for a single mission's game session.
+    It creates a continuous, sequential dialogue stream by generating dialogue
+    only when the previous batch has been fully streamed.
     """
     def __init__(self, mission_id: UUID, manager: ConnectionManager):
         self.mission_id = mission_id
@@ -38,11 +39,10 @@ class GameSession:
         self.dialogue_history = ""
         self.mission_context = ""
         self._is_active = True
-        self._speaker_task: Optional[asyncio.Task] = None
-        self._writer_task: Optional[asyncio.Task] = None
+        self._main_task: Optional[asyncio.Task] = None
 
     async def start(self):
-        """Initializes and starts the concurrent dialogue generation and speaking tasks."""
+        """Initializes and starts the main dialogue and speaking loop."""
         print(f"Game session starting for mission {self.mission_id}")
         db = await get_database()
         mission = await get_propaganda_mission_by_id(self.mission_id, db)
@@ -53,50 +53,45 @@ class GameSession:
         self.speakers = mission.generation_result.speakers
         self.mission_context = mission.dialogue_generator_prompt
         
-        # Start the concurrent "writer" (dialogue generation) and "speaker" (TTS) tasks
-        self._writer_task = asyncio.create_task(self._continuous_dialogue_generation_loop())
-        self._speaker_task = asyncio.create_task(self._speaking_loop())
+        self._main_task = asyncio.create_task(self._dialogue_and_speaking_loop())
 
     async def stop(self):
-        """Stops the game session and cleans up all running tasks."""
+        """Stops the game session and cleans up the main task."""
         print(f"Stopping game session for mission {self.mission_id}")
         self._is_active = False
-        for task in [self._writer_task, self._speaker_task]:
-            if task:
-                task.cancel()
-                try:
-                    await task
-                except asyncio.CancelledError:
-                    pass # Expected on cancellation
-        print("All game session tasks cancelled successfully.")
+        if self._main_task:
+            self._main_task.cancel()
+            try:
+                await self._main_task
+            except asyncio.CancelledError:
+                pass # Expected on cancellation
+        print("Game session task cancelled successfully.")
 
-    async def _continuous_dialogue_generation_loop(self):
-        """A background task that continuously generates dialogue to keep the queue filled."""
+    async def _dialogue_and_speaking_loop(self):
+        """
+        Main loop that generates dialogue and streams it sequentially.
+        It ensures a new dialogue batch is only generated after the previous one
+        has been completely streamed to the client.
+        """
         while self._is_active:
             try:
-                # Maintain a buffer of at least 5 lines
-                if self.dialogue_queue.qsize() < 5:
-                    print("[GameSession] Generating new batch of dialogue...")
-                    new_dialogues = await asyncio.to_thread(generate_dialogue, self.mission_context, self.dialogue_history)
-                    print(f"[GameSession] Dialogue batch size: {len(new_dialogues)}")
+                if self.dialogue_queue.empty():
+                    print("[GameSession] Dialogue queue empty. Generating new batch...")
+                    new_dialogues = await asyncio.to_thread(
+                        generate_dialogue, self.mission_context, self.dialogue_history
+                    )
+                    print(f"[GameSession] Generated dialogue batch size: {len(new_dialogues)}")
+                    
+                    if not new_dialogues:
+                        await asyncio.sleep(5) # Avoid busy-loop if generation fails
+                        continue
+                        
                     for dialogue in new_dialogues:
-                        # Update history for the *next* generation cycle
                         self.dialogue_history += f"\n{dialogue.speaker_name}: {dialogue.line}"
                         await self.dialogue_queue.put(dialogue)
-                # Wait a bit before checking again to avoid busy-waiting
-                await asyncio.sleep(1)
-            except asyncio.CancelledError:
-                print("Dialogue generation loop cancelled.")
-                break
-            except Exception as e:
-                print(f"Error in dialogue generation loop: {e}")
-                await asyncio.sleep(5) # Wait longer on error
 
-    async def _speaking_loop(self):
-        """The main loop that pulls dialogue from the queue and streams it as audio."""
-        while self._is_active:
-            try:
-                # This will wait until a dialogue line is available
+                # Get the next line from the queue. This will wait if the queue is
+                # currently empty but a generation task is running.
                 dialogue_line = await self.dialogue_queue.get()
                 
                 speaker_name = dialogue_line.speaker_name
@@ -106,24 +101,29 @@ class GameSession:
                 
                 speaker_gender = next((s.gender for s in self.speakers if s.name == speaker_name), "female")
                 
-                # Stream the audio to the client
-                tts_stream = deepgram_service.text_to_speech_stream(line_text, speaker_gender)
-                async for chunk in tts_stream:
-                    if self.mission_id in self.manager.active_connections:
+                # Stream the audio to the client. This block ensures that if the
+                # client disconnects at any point, the session is stopped gracefully.
+                try:
+                    tts_stream = deepgram_service.text_to_speech_stream(line_text, speaker_gender)
+                    async for chunk in tts_stream:
+                        # This send operation will raise an exception if the client has disconnected.
                         await self.manager.active_connections[self.mission_id].send_bytes(chunk)
-                    else:
-                        print("Client disconnected mid-stream. Stopping session.")
-                        await self.stop()
-                        return # Exit the loop completely
-                
-                print(f"[GameSession] Finished streaming TTS for line: '{line_text}'")
-                self.dialogue_queue.task_done()
+                    
+                    print(f"[GameSession] Finished streaming TTS for line: '{line_text}'")
+                    self.dialogue_queue.task_done()
+
+                except Exception as e:
+                    # This block catches errors during TTS or sending, which are often
+                    # caused by client disconnections (e.g., KeyError, RuntimeError).
+                    print(f"Error during streaming for mission {self.mission_id}: {e}. Stopping session.")
+                    await self.stop()
+                    return # Exit the task completely
 
             except asyncio.CancelledError:
-                print("Speaking loop cancelled.")
+                print("Dialogue and speaking loop cancelled.")
                 break
             except Exception as e:
-                print(f"Error in speaking loop: {e}")
+                print(f"An unexpected error occurred in the main loop: {e}")
                 await asyncio.sleep(1)
 
 # A dictionary to hold active game sessions
