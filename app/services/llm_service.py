@@ -3,6 +3,28 @@ from google.genai import types
 from app.core.config import settings
 from app.schemas.propaganda import PropagandaGenerationResult, Speaker
 
+# --- Generic Prompt Templates ---
+
+GENERIC_DIALOGUE_INSTRUCTIONS = """
+You are the AI director for a dystopian radio show. Your primary role is to generate dialogue for the radio hosts.
+
+**Core Rules:**
+1.  **Dialogue Generation:** Generate a minimum of 1 and a maximum of 15 dialogue lines at once. You can generate fewer than 15 lines only if you are strategically waiting for the user (an infiltrator) to respond.
+2.  **Factual Consistency:** The hosts must not tolerate false information or claims that are not present in the provided 'Proof Sentences' or haven't been established by the hosts themselves. They can, however, leave logical loopholes for the user to exploit, but these should not be obvious.
+3.  **User Interaction:** The user is a hacker who has infiltrated the broadcast.
+    - If the user is rude, disruptive, or nonsensical, the hosts can mute them, call them out as a prankster, and move on.
+    - If the user presents valid points or logical arguments, the hosts **cannot** mute them, as this would raise questions about suppressing free speech. They must engage, deflect, or counter the user's points while staying in character.
+4.  **Tone:** The hosts' dialogue should be professional and stoic, but they can subtly troll or mock the user. The tone must remain appropriate for a public broadcast, avoiding any overtly offensive or inappropriate language.
+"""
+
+GENERIC_AWAKENING_INSTRUCTIONS = """
+**User Response Analysis:**
+Based on the user's last statement, you must determine the percentage of listeners who are "awakened" by the exchange.
+- This value can be positive (the user was effective), negative (the user was counter-productive), or zero.
+- If the user's response is nonsensical, irrelevant, or they say nothing, the change should be negative, as it implies they were scared or speechless.
+- Provide this as a floating-point number in the `awakened_listeners_change` field.
+"""
+
 class LLMServiceError(Exception):
     """Custom exception for LLM service errors."""
     pass
@@ -20,10 +42,9 @@ def generate_initial_propaganda(topic: str) -> PropagandaGenerationResult:
         f"Your task is to create the initial concept for a piece of propaganda on the topic: \"{topic}\".\n"
         "Generate the following:\n"
         "- A brief summary (2-3 sentences).\n"
-        "- A list of 3-5 'proof sentences' that act as talking points or evidence for the propaganda. Put realistic factual evidence or statistics here, not moral points or opinions.\n"
+        "- A list of 3-5 'proof sentences' that act as talking points or evidence for the propaganda.\n"
         "- A list of 1-4 speakers, providing only their name and gender.\n"
-        "- An initial number of listeners for the show (a realistic number for a radio broadcast), between 100 to 5000."
-        "\nThe more stronger/famous the speakers, the more listeners there will be."
+        "- An initial number of listeners for the show (a realistic number for a radio broadcast)."
     )
     try:
         client = _get_genai_client()
@@ -42,15 +63,23 @@ def generate_initial_propaganda(topic: str) -> PropagandaGenerationResult:
     except Exception as e:
         raise LLMServiceError(f"An unexpected error occurred during initial propaganda generation: {e}")
 
-def generate_speaker_system_prompt(topic: str, speaker: Speaker) -> str:
+def generate_unified_dialogue_prompt(mission_data: PropagandaGenerationResult, topic: str) -> str:
     """
-    Generates a detailed system prompt for a radio show speaker (Stage 2).
+    Generates the dynamic part of the unified dialogue prompt for Stage 2.
+    This includes character descriptions and background info.
     """
+    character_profiles = "\\n".join([f"- {s.name} ({s.gender})" for s in mission_data.speakers])
+    proofs = "\\n".join([f"- {p}" for p in mission_data.proof_sentences])
+
     prompt = (
-        "You are a script director for a dystopian radio show. Your task is to create a detailed system prompt for an AI voice actor.\n"
-        f"The topic of the radio segment is: \"{topic}\".\n"
-        f"The speaker's name is {speaker.name} ({speaker.gender}).\n\n"
-        "Based on this, generate a comprehensive system prompt. The prompt should define their personality, their role in the broadcast (e.g., host, expert, caller), their likely perspective on the topic, their tone of voice, and how they should interact with others. It should be detailed enough for an LLM to generate natural, in-character dialogue."
+        "You are a script director for a dystopian radio show. Your task is to create the dynamic context for a dialogue generation AI.\n\n"
+        f"**Theme:** A radio propaganda piece on the topic: \"{topic}\".\n\n"
+        "**Background & Core Arguments (The hosts will treat these as undeniable truths):**\n"
+        f"{proofs}\n\n"
+        "**Characters:**\n"
+        f"{character_profiles}\n\n"
+        "**Your Task:**\n"
+        "Based on the theme, background, and characters, write a detailed 'Show & Character Briefing'. This briefing should describe the overall tone of the show and provide a detailed personality, style, and perspective for EACH character. This will be used by another AI to generate their dialogue."
     )
     try:
         client = _get_genai_client()
@@ -60,6 +89,6 @@ def generate_speaker_system_prompt(topic: str, speaker: Speaker) -> str:
         )
         if response.text:
             return response.text
-        raise LLMServiceError(f"LLM returned an empty response for system prompt generation for {speaker.name}.")
+        raise LLMServiceError("LLM returned an empty response for the unified dialogue prompt.")
     except Exception as e:
-        raise LLMServiceError(f"An unexpected error occurred during system prompt generation for {speaker.name}: {e}")
+        raise LLMServiceError(f"An unexpected error occurred during unified prompt generation: {e}")

@@ -13,24 +13,21 @@ from app.db import propaganda_db
 
 router = APIRouter()
 
-async def generate_and_store_system_prompts(mission: PropagandaMission, db: AsyncIOMotorDatabase):
+async def generate_and_store_unified_prompt(mission: PropagandaMission, db: AsyncIOMotorDatabase):
     """
-    Background task (Stage 2): Generate system prompts for each speaker and update the mission.
+    Background task (Stage 2): Generate the unified dialogue prompt and update the mission.
     """
     try:
-        updated_speakers = []
-        for speaker in mission.generation_result.speakers:
-            system_prompt = await asyncio.to_thread(
-                llm_service.generate_speaker_system_prompt,
-                topic=mission.topic,
-                speaker=speaker
-            )
-            speaker.system_prompt = system_prompt
-            updated_speakers.append(speaker)
+        # Generate the dynamic part of the prompt
+        dynamic_prompt = await asyncio.to_thread(
+            llm_service.generate_unified_dialogue_prompt,
+            mission_data=mission.generation_result,
+            topic=mission.topic
+        )
 
         # Prepare data for update
         update_data = {
-            "generation_result.speakers": [s.model_dump() for s in updated_speakers],
+            "dialogue_generator_prompt": dynamic_prompt,
             "status": "stage2"
         }
 
@@ -53,8 +50,8 @@ async def create_mission(
     Creates a new propaganda mission (Stage 1).
 
     This endpoint synchronously generates the initial mission details,
-    returns them, and then starts a background task to generate detailed
-    system prompts for each speaker (Stage 2).
+    returns them, and then starts a background task to generate the unified
+    dialogue prompt for all speakers (Stage 2).
     """
     try:
         # 1. Generate initial propaganda content (synchronous)
@@ -74,7 +71,7 @@ async def create_mission(
         await propaganda_db.create_propaganda_mission(mission, db)
 
         # 4. Start background task for Stage 2
-        background_tasks.add_task(generate_and_store_system_prompts, mission, db)
+        background_tasks.add_task(generate_and_store_unified_prompt, mission, db)
 
         # 5. Return the created mission object
         return mission

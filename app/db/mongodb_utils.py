@@ -1,4 +1,5 @@
 from motor.motor_asyncio import AsyncIOMotorClient, AsyncIOMotorDatabase
+from bson import UuidRepresentation
 from app.core.config import settings
 
 class DataBase:
