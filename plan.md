@@ -37,23 +37,25 @@ with push to talk: (this is what we are doing)
         -> Once the status is `"stage2"`, the client has the dialogue prompt and can connect to the WebSocket for the interactive phase.
 
     websocket connected
-        -> send _name_ of each caller. (no need as already stored in mongo db)
-        -> main loop until timelimit:
-            -> if current dialogue segment is a pause for user to speak:
-                -> wait up to 10 seconds for user to press and hold the "Talk" button.
-                -> if user presses button:
-                    -> while button is pressed, record and stream user's mic audio to python backend in chunks.
-                    -> on button release, stop recording and send final audio chunk.
-                    -> backend performs STT on received audio.
-                        -> if STT detects that audio is blank, add "user spoke nothing" to context (same as else above).
-                        -> else, append transcribed text to context.
-                -> else (user does not speak within 10 seconds):
-                    -> add "user spoke nothing" to context.
-            -> generate next set of dialogues from gemini (use good system prompt, pass story and past dialogues as context).
-            -> decide voice actors for each speaker. give _name_ to each.
-            -> send json list with name and audio of each dialogue. gaps will be a segment too.
-            -> stream the tts audio in segments to user if possible.
-        -> repeat for each dialogue segment until timelimit.
+        -> The server initiates a `GameSession` to manage the interactive dialogue.
+        -> The `GameSession` enters a continuous loop with the following logic:
+        
+        **Server-Side Logic (Dialogue Generation & Streaming):**
+        1.  **Wait for Signal**: The server waits for a "ready" signal from the client before proceeding. For the very first line, it starts automatically.
+        2.  **Generate Dialogue**: If its internal dialogue queue is empty, it generates a new batch of dialogues using the LLM, based on the mission context and past dialogue history.
+        3.  **Stream Audio**: It takes the next dialogue line from its queue and generates TTS audio for it using Deepgram.
+        4.  **Send Audio**: It streams the audio `bytes` to the client in real-time chunks.
+        5.  **Signal End of Dialogue**: After the final audio chunk for a line is sent, the server sends a JSON message: `{"status": "dialogue_end"}`.
+        6.  The server now waits again at step 1 for the client's signal.
+
+        **Client-Side Logic (Audio Playback & Signaling):**
+        1.  **Receive Audio**: The client receives audio `bytes` and puts them into a local queue for a dedicated audio player thread. This ensures the main connection doesn't block while sound is playing.
+        2.  **Play Audio**: The audio player thread consumes the queue and plays the sound through the user's speakers in real-time.
+        3.  **Receive End Signal**: When the client receives the `{"status": "dialogue_end"}` message, it knows the current line is complete.
+        4.  **Confirm Playback Finished**: The client waits for its local audio queue to become empty, confirming that all received audio has been played.
+        5.  **Signal Ready**: Once playback is finished, it sends a JSON message `{"action": "ready_for_next"}` back to the server.
+        
+        -> This two-way signaling loop continues, ensuring a strict, sequential, and robust dialogue playback experience.
 
 ## Technology Stack & Core Mechanics
 

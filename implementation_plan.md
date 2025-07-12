@@ -119,3 +119,68 @@ The API is implemented in `api/v1/endpoints/propaganda.py` and provides two endp
 ### 7. FastAPI Application & Database Connection
 
 The main FastAPI application in `app/main.py` initializes the API routers and manages the MongoDB connection lifecycle, ensuring the database is connected on startup and disconnected on shutdown.
+## Phase 2: Interactive Dialogue Streaming via WebSockets
+
+This phase covers the real-time, interactive part of the mission where the generated dialogue is streamed to the client as audio.
+
+### 1. Project Structure Additions
+
+The project structure is expanded to include WebSocket handling and game session management.
+
+```
+.
+├── app
+│   └── services
+│       ├── deepgram_service.py # Service for TTS/STT
+│       └── game_manager.py     # Manages active game sessions and connections
+│   └── api
+│       └── v1
+│           └── endpoints
+│               └── game.py         # WebSocket endpoint for interactive gameplay
+```
+
+### 2. Dependencies
+
+The following libraries are essential for this phase:
+
+*   `websockets` (included with `fastapi[all]`)
+*   `sounddevice` and `numpy` (for the test client to play audio)
+
+### 3. WebSocket Endpoint
+
+A new endpoint is created in `api/v1/endpoints/game.py` to manage the live game session.
+
+*   **`WS /api/v1/ws/{mission_id}`**:
+    *   **Purpose**: Establishes a persistent connection for real-time, two-way communication.
+    *   **Workflow**:
+        1.  Accepts a WebSocket connection and associates it with a `mission_id`.
+        2.  Creates a `GameSession` object to manage the state and logic for that specific mission.
+        3.  Starts the game session's main loop as a background task.
+        4.  Enters a loop to listen for incoming JSON messages from the client.
+        5.  When it receives `{"action": "ready_for_next"}`, it signals the `GameSession` to proceed with the next dialogue line.
+        6.  Handles `WebSocketDisconnect` exceptions to gracefully terminate the `GameSession` and clean up resources.
+
+### 4. Game Session Management
+
+The core of the interactive experience is handled by `services/game_manager.py`.
+
+*   **`ConnectionManager` Class**: A simple manager that keeps track of active WebSocket connections, mapping a `mission_id` to its `WebSocket` object.
+
+*   **`GameSession` Class**: This class encapsulates all the logic for a running mission.
+    *   **State**: Holds the mission context, dialogue history, and a queue of upcoming dialogue lines.
+    *   **Signaling**: Uses an `asyncio.Event` as a signal to control the flow. The session's main loop `waits` on this event before generating and streaming the next line.
+    *   **Main Loop (`_dialogue_and_speaking_loop`)**:
+        1.  Waits for the "ready" signal.
+        2.  If the dialogue queue is empty, it calls the `llm_service` to generate the next batch of dialogues.
+        3.  It takes the next line, calls the `deepgram_service` to get a streaming TTS audio generator.
+        4.  It iterates through the generator, sending each audio chunk (`bytes`) directly to the client over the WebSocket.
+        5.  After the last chunk, it sends a JSON message `{"status": "dialogue_end"}` to the client.
+        6.  The loop then returns to step 1, waiting for the next signal.
+
+### 5. Text-to-Speech Service
+
+The `services/deepgram_service.py` provides the TTS functionality.
+
+*   **`text_to_speech_stream` Method**:
+    *   Takes text and speaker/voice parameters.
+    *   Calls the Deepgram API and returns an `async_generator` that yields the audio data in chunks. This is critical for real-time streaming, as it allows the server to send audio to the client as soon as the first bytes are received from the TTS provider, minimizing latency.
