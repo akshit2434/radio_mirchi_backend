@@ -1,5 +1,5 @@
 from fastapi import FastAPI
-from app.api.v1.endpoints import propaganda
+from app.api.v1.endpoints import propaganda, game
 from app.db.mongodb_utils import connect_to_mongo, close_mongo_connection
 
 app = FastAPI(
@@ -17,6 +17,7 @@ async def shutdown_event():
     await close_mongo_connection()
 
 app.include_router(propaganda.router, prefix="/api/v1", tags=["propaganda"])
+app.include_router(game.router, prefix="/api/v1", tags=["game"])
 
 @app.get("/")
 def read_root():

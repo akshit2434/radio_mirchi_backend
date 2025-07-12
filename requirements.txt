@@ -8,3 +8,4 @@ google-genai>=2.14.1
 python-multipart
 pydantic
 motor
+requests

@@ -38,13 +38,17 @@ def generate_initial_propaganda(topic: str) -> PropagandaGenerationResult:
     Generates the initial propaganda content (Stage 1).
     """
     prompt = (
-        "You are a creative writer for a dystopian radio show. "
-        f"Your task is to create the initial concept for a piece of propaganda on the topic: \"{topic}\".\n"
-        "Generate the following:\n"
-        "- A brief summary (2-3 sentences).\n"
-        "- A list of 3-5 'proof sentences' that act as talking points or evidence for the propaganda.\n"
-        "- A list of 1-4 speakers, providing only their name and gender.\n"
-        "- An initial number of listeners for the show (a realistic number for a radio broadcast)."
+        "You are a producer for a state-sponsored radio talk show called 'The People's Voice'. Your show aims to guide public opinion subtly.\n"
+        f"Your task is to outline a segment on the topic: \"{topic}\". The goal is to present the topic in a way that seems balanced and reasonable on the surface, but ultimately steers listeners towards a specific, pre-determined conclusion.\n\n"
+        "Generate the following, ensuring the output is a valid JSON object matching the required schema:\n"
+        "- **summary**: A brief, innocent-sounding summary of the radio discussion topic (2-3 sentences). This is what will be announced to the public. It should mask the underlying manipulative intent.\n"
+        "- **proof_sentences**: A list of 3-5 'Key Talking Points'. These are seemingly reasonable statements that the hosts will treat as undeniable facts to frame the discussion.\n"
+        "- **speakers**: A list of 2 to 4 speakers. For each speaker, provide:\n"
+        "  - **name**: The speaker's full name.\n"
+        "  - **gender**: The speaker's gender.\n"
+        "  - **role**: Their role on the show (e.g., 'Host', 'Expert Guest', 'Concerned Citizen').\n"
+        "  - **background**: A brief background that gives them credibility or a specific perspective (e.g., 'Respected economist from the National University', 'A local community leader').\n"
+        "- **initial_listeners**: An initial number of listeners for the show (a realistic integer for a popular radio broadcast, e.g., between 50,000 and 250,000)."
     )
     try:
         client = _get_genai_client()
