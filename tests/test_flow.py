@@ -105,7 +105,7 @@ async def create_mission(session: aiohttp.ClientSession):
         ) as response:
             response.raise_for_status()
             mission_data = await response.json()
-            if mission_id := mission_data.get("id"):
+            if mission_id := str(mission_data.get("_id")):
                 mission_data_storage['current_mission'] = mission_data
                 print("Mission created successfully!")
                 pretty_print_json(mission_data)
@@ -221,7 +221,7 @@ async def main():
             if choice == '1':
                 await create_mission(session)
                 if 'current_mission' in mission_data_storage:
-                    mission_id = mission_data_storage['current_mission'].get("id")
+                    mission_id = str(mission_data_storage['current_mission'].get("_id"))
             elif choice == '2':
                 if 'current_mission' in mission_data_storage:
                     mission_id = mission_data_storage['current_mission'].get("id")
@@ -229,6 +229,8 @@ async def main():
                     print("No mission created yet.")
             elif choice == '3':
                 mission_id = input("Enter the existing mission ID: ")
+                # Ensure the entered ID is treated as a string
+                mission_id = str(mission_id)
             elif choice == '4':
                 break
             else:

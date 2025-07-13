@@ -2,7 +2,6 @@ import asyncio
 import json
 from enum import Enum, auto
 from fastapi import WebSocket
-from uuid import UUID
 from typing import Dict, List, Optional
 from app.services.llm_service import generate_dialogue
 from app.services.deepgram_service import deepgram_service
@@ -13,17 +12,17 @@ from app.schemas.propaganda import DialogueLine, Speaker
 class ConnectionManager:
     """Manages active WebSocket connections."""
     def __init__(self):
-        self.active_connections: Dict[UUID, WebSocket] = {}
+        self.active_connections: Dict[str, WebSocket] = {}
 
-    async def connect(self, websocket: WebSocket, mission_id: UUID):
+    async def connect(self, websocket: WebSocket, mission_id: str):
         await websocket.accept()
         self.active_connections[mission_id] = websocket
 
-    def disconnect(self, mission_id: UUID):
+    def disconnect(self, mission_id: str):
         if mission_id in self.active_connections:
             del self.active_connections[mission_id]
 
-    async def send_to_client(self, message: str, mission_id: UUID):
+    async def send_to_client(self, message: str, mission_id: str):
         if mission_id in self.active_connections:
             await self.active_connections[mission_id].send_text(message)
 
@@ -37,7 +36,7 @@ class GameSession:
     Manages the game state and dialogue flow with a robust state machine
     to prevent race conditions and overlapping audio.
     """
-    def __init__(self, mission_id: UUID, manager: ConnectionManager):
+    def __init__(self, mission_id: str, manager: ConnectionManager):
         self.mission_id = mission_id
         self.manager = manager
         self.dialogue_queue: asyncio.Queue[DialogueLine] = asyncio.Queue()
@@ -196,7 +195,7 @@ class GameSession:
             self._tts_task = asyncio.create_task(self._stream_tts_for_line(dialogue_line))
 
 # A dictionary to hold active game sessions
-game_sessions: Dict[UUID, GameSession] = {}
+game_sessions: Dict[str, GameSession] = {}
 
 # Singleton instance of the connection manager
 manager = ConnectionManager()

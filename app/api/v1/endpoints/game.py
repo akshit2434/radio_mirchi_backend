@@ -1,12 +1,11 @@
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 import json
-from uuid import UUID
 from app.services.game_manager import manager, GameSession, game_sessions
 
 router = APIRouter()
 
 @router.websocket("/ws/{mission_id}")
-async def websocket_endpoint(websocket: WebSocket, mission_id: UUID):
+async def websocket_endpoint(websocket: WebSocket, mission_id: str):
     await manager.connect(websocket, mission_id)
     session: GameSession | None = None
     try:

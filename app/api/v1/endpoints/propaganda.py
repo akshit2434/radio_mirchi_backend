@@ -1,7 +1,6 @@
 import logging
 import asyncio
 from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
-from uuid import UUID
 from motor.motor_asyncio import AsyncIOMotorDatabase
 
 from app.schemas.propaganda import (
@@ -33,14 +32,14 @@ async def generate_and_store_unified_prompt(mission: PropagandaMission, db: Asyn
         }
 
         # Update the mission in the database
-        await propaganda_db.update_propaganda_mission(mission.id, update_data, db)
+        await propaganda_db.update_propaganda_mission(str(mission.id), update_data, db)
 
     except llm_service.LLMServiceError as e:
         logging.error(f"Stage 2 failed for mission {mission.id} due to LLMServiceError: {e}", exc_info=True)
-        await propaganda_db.update_propaganda_mission(mission.id, {"status": "stage2_failed"}, db)
+        await propaganda_db.update_propaganda_mission(str(mission.id), {"status": "stage2_failed"}, db)
     except Exception as e:
         logging.error(f"Stage 2 failed for mission {mission.id} due to unexpected error: {e}", exc_info=True)
-        await propaganda_db.update_propaganda_mission(mission.id, {"status": "stage2_failed"}, db)
+        await propaganda_db.update_propaganda_mission(str(mission.id), {"status": "stage2_failed"}, db)
 
 
 @router.post("/create_mission", response_model=PropagandaMission, status_code=201)
@@ -65,7 +64,7 @@ async def create_mission(
         # 2. Create the full mission object
         mission = PropagandaMission(
             user_id=request.user_id,
-            topic=request.topic,
+            topic=generation_result.topic, # Use the topic from the LLM response
             generation_result=generation_result,
             status="stage1" # Initial status
         )
@@ -89,7 +88,7 @@ async def create_mission(
 
 @router.get("/mission_status/{mission_id}", response_model=PropagandaMission)
 async def get_mission_status(
-    mission_id: UUID,
+    mission_id: str,
     db: AsyncIOMotorDatabase = Depends(get_database)
 ):
     """

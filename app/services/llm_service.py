@@ -30,6 +30,8 @@ If the hacker presents a valid point (which might be one of the 'Secret Key Poin
 4.  **Speaker Attribution:** Each line of dialogue MUST be attributed to one of the provided speakers.
 5.  **Tone:** The hosts' dialogue should be professional, confident, and stoic, maintaining an authoritative tone appropriate for a public broadcast.
 6.  **Factual Consistency (Hosts):** The hosts will only present information consistent with the state's narrative. They will not tolerate or acknowledge any "false information" (from their perspective) or claims that contradict the established propaganda.
+
+NOTE: The dialogues should be in simple language, suitable for a wide audience, and should not include complex jargon or technical terms that might alienate listeners. Sometimes, allow ridiculous or absurd statements to highlight the absurdity of the propaganda, but always keep it within the limits of plausible state-sponsored story. Use simple vocabulary like that of a 10-year-old child, but maintain a professional tone.
 """
 GENERIC_AWAKENING_INSTRUCTIONS = """
 **Hacker Response Analysis:**
@@ -46,28 +48,38 @@ def _get_genai_client():
     """Initializes and returns a GenAI client."""
     return genai.Client(api_key=settings.GOOGLE_API_KEY)
 
-def generate_initial_propaganda(topic: str) -> PropagandaGenerationResult:
+def generate_initial_propaganda(topic: str | None) -> PropagandaGenerationResult:
     """
     Generates the initial propaganda content (Stage 1).
+    If the topic is 'any' or None, it instructs the LLM to invent one.
     """
+    topic_instruction = ""
+    topic_field_instruction = ""
+    if topic and topic.lower() != "any":
+        topic_instruction = f'**Provided Topic:** "{topic}"\n\n'
+        topic_field_instruction = "Use the provided topic for this field."
+    else:
+        topic_instruction = (
+            "**Topic Generation:** You must invent a topic for the propaganda segment. It should be simple, easy to understand, and clearly a form of propaganda in disguise. Examples could be about a new mandatory 'civic wellness' program, the 'benefits' of constant state surveillance for public safety, or a fabricated 'imminent threat' from a neighboring region that requires national unity.\n\n"
+        )
+        topic_field_instruction = "The topic you just invented."
+
     prompt = (
-        "You are a producer for a state-sponsored radio talk show. Your task is to create the foundational elements for a propaganda segment on a given topic. The entire purpose of this radio show is to manipulate public opinion and reinforce the state's narrative. You must create two conflicting sets of information: the **propaganda** that the hosts will spread, and the **hidden truth** that a hacker character can use to debunk it.\n\n"
-        f"**Topic:** \"{topic}\"\n\n"
+        "You are a producer for a state-sponsored radio talk show. Your task is to create the foundational elements for a propaganda segment. The entire purpose of this radio show is to manipulate public opinion and reinforce the state's narrative. You must create two conflicting sets of information: the **propaganda** that the hosts will spread, and the **hidden truth** that a hacker character can use to debunk it.\n\n"
+        f"{topic_instruction}"
         "**Your Task:**\n"
         "Generate the following components as a valid JSON object. Be creative and ensure the propaganda and the truth are compelling and contradictory.\n\n"
-        "1.  **`summary` (The Propaganda Narrative):**\n"
-        "    - Write a 2-3 sentence summary of the radio show's official, manipulative narrative on the topic. This is the story the hosts will be pushing. It should sound plausible but be fundamentally misleading.\n"
-        "    - **Example (Topic: Moon Landing):** \"Tonight, we celebrate the monumental achievement of the Apollo 11 mission, a testament to human ingenuity and a source of national pride. We'll revisit the iconic moments and discuss the lasting scientific legacy of this giant leap for mankind.\"\n\n"
-        "2.  **`speakers` (The Propaganda Mouthpieces):**\n"
+        "1.  **`topic` (The Propaganda Topic):**\n"
+        f"    - {topic_field_instruction}\n\n"
+        "2.  **`summary` (The Propaganda Narrative):**\n"
+        "    - Write a 2-3 sentence summary of the radio show's official, manipulative narrative on the topic. This is the story the hosts will be pushing. It should sound plausible but be fundamentally misleading.\n\n"
+        "3.  **`speakers` (The Propaganda Mouthpieces):**\n"
         "    - Create a list of 2 to 4 speakers who will appear on the show.\n"
-        "    - Their **name**, **gender**, **role**, and **background** MUST be designed to lend credibility to the propaganda narrative. They should be staunch supporters of the state's view.\n"
-        "    - **Example Roles:** 'Patriotic Host', 'State-Approved Scientist', 'Grateful Citizen'.\n\n"
-        "3.  **`proof_sentences` (The Hidden Truth for the Hacker):**\n"
+        "    - Their **name**, **gender**, **role**, and **background** MUST be designed to lend credibility to the propaganda narrative. They should be staunch supporters of the state's view.\n\n"
+        "4.  **`proof_sentences` (The Hidden Truth for the Hacker):**\n"
         "    - Create a list of 3-5 'Secret Key Points'. These are the **actual facts** of the story that contradict the propaganda narrative. \n"
-        "    - These sentences are the ammunition for the hacker character. They should be specific, verifiable-sounding pieces of information that can be used to expose the hosts' lies.\n"
-        "    - **Crucially, these points must directly challenge the propaganda `summary` and the narrative the `speakers` will be pushing.**\n"
-        "    - **Example (Topic: Moon Landing):** [\"Analysis of the original mission telemetry, leaked by a whistleblower, shows data inconsistencies during the lunar descent.\", \"Declassified documents reveal that the primary camera used on the lunar surface had a critical malfunction that was never reported.\", \"Several independent astronomers at the time logged anomalous radio signals from the moon that did not match NASA's public transmissions.\"]\n\n"
-        "4.  **`initial_listeners`:**\n"
+        "    - These sentences are the ammunition for the hacker character. They should be specific, verifiable-sounding pieces of information that can be used to expose the hosts' lies.\n\n"
+        "5.  **`initial_listeners`:**\n"
         "    - Provide a realistic integer for the number of initial listeners (e.g., between 50,000 and 250,000)."
     )
     try:
