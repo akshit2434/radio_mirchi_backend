@@ -1,6 +1,9 @@
+import asyncio
+import json
 import random
 import httpx
-from deepgram import DeepgramClient, LiveOptions
+from typing import Callable, Awaitable
+from deepgram import DeepgramClient, LiveOptions, LiveTranscriptionEvents
 from app.core.config import settings
 
 # --- Voice Models ---
@@ -21,20 +24,72 @@ FEMALE_VOICES = [
     "aura-2-vesta-en"
 ]
 
+class LiveTranscription:
+    """
+    Manages a live transcription connection to Deepgram, accumulating the transcript
+    until explicitly stopped.
+    """
+    def __init__(self, deepgram_client: DeepgramClient):
+        self.client = deepgram_client
+        self.dg_connection = self.client.listen.live.v("1")
+        self._is_active = False
+        self.full_transcript = ""
+
+    async def start(self):
+        options = LiveOptions(
+            model="nova-2",
+            language="en-US",
+            smart_format=True,
+            encoding="linear16",
+            sample_rate=16000,
+        )
+        self.dg_connection.on(LiveTranscriptionEvents.Transcript, self._on_transcript) # type: ignore
+        self.dg_connection.on(LiveTranscriptionEvents.Error, self._on_error) # type: ignore
+        
+        try:
+            if not self.dg_connection.start(options): # type: ignore
+                print("[LiveTranscription] Failed to start connection.")
+                return
+
+            self._is_active = True
+            self.full_transcript = "" # Reset transcript on start
+            print("[LiveTranscription] Connected to Deepgram via SDK.")
+        except Exception as e:
+            print(f"[LiveTranscription] Failed to connect to Deepgram: {e}")
+
+    async def send(self, audio_chunk: bytes):
+        if self._is_active:
+            await self.dg_connection.send(audio_chunk) # type: ignore
+
+    def _on_transcript(self, *args, **kwargs):
+        result = kwargs.get("result")
+        if result and result.channel and result.channel.alternatives:
+            transcript = result.channel.alternatives[0].transcript
+            if transcript:
+                self.full_transcript += transcript + " "
+
+    def _on_error(self, *args, **kwargs):
+        error = kwargs.get("error")
+        print(f"[LiveTranscription] Deepgram Error: {error}")
+
+    async def stop(self) -> str:
+        """Stops the connection and returns the final accumulated transcript."""
+        if self._is_active:
+            self._is_active = False
+            await self.dg_connection.finish() # type: ignore
+            print("[LiveTranscription] Connection closed.")
+        return self.full_transcript.strip()
+
 class DeepgramService:
     """
     A service to interact with Deepgram's APIs for Text-to-Speech and Speech-to-Text.
     """
     def __init__(self):
-        # The DeepgramClient is still useful for other methods like transcription
         self.client = DeepgramClient(settings.DEEPGRAM_API_KEY)
         self.http_client = httpx.AsyncClient()
         self.tts_url = "https://api.deepgram.com/v1/speak"
 
     async def text_to_speech_stream(self, text: str, gender: str):
-        """
-        Streams TTS audio from Deepgram using a direct async HTTP request.
-        """
         if gender.lower() == 'male':
             model = random.choice(MALE_VOICES)
         else:
@@ -57,7 +112,6 @@ class DeepgramService:
 
         try:
             async with self.http_client.stream("POST", self.tts_url, headers=headers, params=params, json=payload, timeout=60) as response:
-                # Check for errors
                 if response.is_error:
                     error_body = await response.aread()
                     print(f"[DeepgramService] Error from API: {response.status_code} - {error_body.decode()}")
@@ -75,19 +129,11 @@ class DeepgramService:
         finally:
             print(f"[DeepgramService] TTS function finished for: '{text[:60]}...'")
 
-    def get_live_transcriber(self, on_transcript_callback):
+    def get_live_transcriber(self) -> "LiveTranscription":
         """
-        Creates and returns a configured synchronous Deepgram live transcription connection.
+        Returns an instance of the asynchronous LiveTranscription manager.
         """
-        dg_connection = self.client.listen.websocket.v("1")
-        options = LiveOptions(
-            smart_format=True,
-            model="nova-2",
-            language="en-US",
-            encoding="linear16",
-            sample_rate=16000,
-        )
-        return dg_connection, options
+        return LiveTranscription(self.client)
 
 # Singleton instance for easy access
 deepgram_service = DeepgramService()

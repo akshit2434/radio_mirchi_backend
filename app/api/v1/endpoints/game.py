@@ -8,9 +8,8 @@ router = APIRouter()
 @router.websocket("/ws/{mission_id}")
 async def websocket_endpoint(websocket: WebSocket, mission_id: UUID):
     await manager.connect(websocket, mission_id)
-    session = None
+    session: GameSession | None = None
     try:
-        # Create and start a new game session if one doesn't exist
         if mission_id not in game_sessions:
             session = GameSession(mission_id, manager)
             game_sessions[mission_id] = session
@@ -18,23 +17,36 @@ async def websocket_endpoint(websocket: WebSocket, mission_id: UUID):
         else:
             session = game_sessions[mission_id]
 
-        # Listen for messages from the client.
         while True:
-            message = await websocket.receive_text()
-            data = json.loads(message)
+            message = await websocket.receive()
             
-            if data.get("action") == "ready_for_next":
-                print(f"Received 'ready_for_next' from client for mission {mission_id}")
+            if "text" in message:
+                data = json.loads(message["text"])
+                action = data.get("action")
+                
+                if action == "ready_for_next":
+                    print(f"Received 'ready_for_next' from client for mission {mission_id}")
+                    if session:
+                        await session.signal_ready_for_next()
+                elif action == "start_speech":
+                    print(f"Received 'start_speech' from client for mission {mission_id}")
+                    if session:
+                        await session.start_user_speech()
+                elif action == "stop_speech":
+                    print(f"Received 'stop_speech' from client for mission {mission_id}")
+                    if session:
+                        await session.stop_user_speech()
+
+            elif "bytes" in message:
                 if session:
-                    session.signal_ready_for_next()
-            
+                    await session.handle_user_audio(message["bytes"])
+
     except WebSocketDisconnect:
         print(f"Client disconnected from mission {mission_id}. Cleaning up session.")
-        if session:
-            await session.stop()
-        
-        manager.disconnect(mission_id)
         if mission_id in game_sessions:
+            session = game_sessions[mission_id]
+            await session.stop()
             del game_sessions[mission_id]
         
+        manager.disconnect(mission_id)
         print(f"Session for mission {mission_id} closed.")

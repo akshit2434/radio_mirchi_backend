@@ -8,4 +8,5 @@ google-genai
 python-multipart
 pydantic
 motor
+pynput
 requests

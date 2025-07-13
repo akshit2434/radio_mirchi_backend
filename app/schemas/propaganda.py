@@ -29,6 +29,10 @@ class DialogueTurn(BaseModel):
     dialogues: List[DialogueLine]
     awakened_listeners_change: float = Field(..., description="Percentage change in awakened listeners. Can be positive, negative, or zero.")
 
+class UserDialogue(BaseModel):
+    """Represents the user's transcribed speech."""
+    text: str
+
 class PropagandaMission(BaseModel):
     """Schema for the full mission object stored in MongoDB."""
     id: UUID = Field(default_factory=uuid4)
