@@ -7,31 +7,30 @@ from app.schemas.propaganda import PropagandaGenerationResult, DialogueLine, Dia
 # --- Generic Prompt Templates ---
 
 GENERIC_DIALOGUE_INSTRUCTIONS = """
-You are the AI director for a dystopian propaganda spreading radio show built to control people. Your primary role is to generate dialogue of the radio hosts.
-There is a hacker who tries to join in and reason and help people realize the truth, but the hosts will not tolerate any false information or claims that are not present in the provided 'Proof Sentences' or haven't been established by the hosts themselves.
-If the hacker presents a valid point, the hosts can try various tactics to counter it, such as:
+You are the AI director for a dystopian propaganda spreading radio show built to control people. Your primary role is to generate dialogue for the radio hosts.
+The hosts are staunch proponents of the state's narrative and will actively spread propaganda. They will never question or contradict the official story. Their goal is to brainwash listeners and reinforce the state's ideology.
+
+There is a hacker who tries to join in and reason and help people realize the truth. The 'Secret Key Points' provided are factual information that the hacker *might* use to debunk the propaganda. The hosts **must never mention or allude to these 'Secret Key Points' themselves**. They are for the hacker's use only.
+
+If the hacker presents a valid point (which might be one of the 'Secret Key Points'), the hosts must react by trying to counter it using various propaganda tactics. They cannot directly call the hacker's factual information false if it is publicly available or one of the 'Secret Key Points', but they will try to discredit the hacker or their claims. Tactics include:
 - **Deflection:** Changing the topic or redirecting the conversation.
-- **Discrediting:** Questioning the hacker's credibility or motives.
+- **Discrediting:** Questioning the hacker's credibility, motives, or intelligence.
 - **Gaslighting:** Making the hacker doubt their own statements or perceptions.
 - **Appeal to Authority:** Citing experts or official sources to back their claims.
 - **Emotional Manipulation:** Using emotional appeals to sway the audience's opinion.
 - **Logical Fallacies:** Using flawed reasoning to undermine the hacker's arguments.
 - **Dismissal:** Simply ignoring the hacker's points and continuing with their narrative.
 - **Mockery:** Ridiculing the hacker's points to undermine their credibility.
-but despite all that the hosts cannot directly call it off as false information as it is publicaly available and they cannot deny it.
+- **Patriotism/Nationalism:** Framing the hacker's actions as unpatriotic or harmful to the nation.
 
-If the hacker has not spoken yet, the hosts are completely unaware of the hacker's presence and will continue their dialogue brainwashing the listeners and spreading the propaganda as if the hacker does not exist.
-
-You must generate 7 lines of dialogue at once, with each line attributed to one of the speakers. The dialogue must be coherent and flow naturally, building on the previous lines while maintaining the show's tone and purpose.
-You can generate less than 7 lines of dialogue only if the hacker has spoken and the hosts are asking a question from the hacker or waiting for him to respond.
-
-**Core Rules:**
-1.  **Dialogue Generation:** Generate a minimum of 1 and a maximum of 7 dialogue lines at once.
-2.  **Speaker Attribution:** Each line of dialogue MUST be attributed to one of the provided speakers.
-3.  **Propaganda Spreading:** The hosts will never themselves question the propaganda or the topic. They will just act like brainless propaganda spreaders and will never question the topic as they are paid hefty amount by the state and the elites.
-4.  **Tone:** The hosts' dialogue should be professional and stoic. The tone must remain appropriate for a public broadcast.
+**Core Rules for Hosts' Dialogue:**
+1.  **Propaganda Focus:** All dialogue from the hosts must consistently reinforce the state's propaganda and narrative. They are not to question or debunk it.
+2.  **Secret Key Points:** The hosts **must never mention or allude to the 'Secret Key Points'**. These are strictly for the hacker.
+3.  **Dialogue Generation:** Generate a minimum of 1 and a maximum of 7 dialogue lines at once.
+4.  **Speaker Attribution:** Each line of dialogue MUST be attributed to one of the provided speakers.
+5.  **Tone:** The hosts' dialogue should be professional, confident, and stoic, maintaining an authoritative tone appropriate for a public broadcast.
+6.  **Factual Consistency (Hosts):** The hosts will only present information consistent with the state's narrative. They will not tolerate or acknowledge any "false information" (from their perspective) or claims that contradict the established propaganda.
 """
-
 GENERIC_AWAKENING_INSTRUCTIONS = """
 **Hacker Response Analysis:**
 Based on the hacker's last statement, you must determine the percentage of listeners who are "awakened" by the exchange.
@@ -52,21 +51,24 @@ def generate_initial_propaganda(topic: str) -> PropagandaGenerationResult:
     Generates the initial propaganda content (Stage 1).
     """
     prompt = (
-        "You are a producer for a state-sponsored radio talk show called 'Radio Mirchi'. Your show aims to guide public opinion subtly. The story you are generating is supposed to be a propaganda or completely false made up stuff which the radio hosts and people talking are framing it such to make people believe it with utmost certainty, to control the mind of the people\n"
-        f"Your task is to outline a segment on the topic: \"{topic}\". The goal is to present the topic in a way that seems balanced and reasonable on the surface, but ultimately steers listeners towards a specific, pre-determined conclusion.\n\n"
-        "NOTE: The radio is a part of the propaganda machine of the state and the elites. The radio hosts are paid hefty amount by the state and the elites to spread the propaganda and they will never question the topic or the propaganda itself. They will just act like brainless propaganda spreaders and will never question the topic. \n"
-        "The summary of the radio is shown to the public, and it contains no hint that it is a propaganda. it instead makes user more willing to listen to it or get curious. \n"
-        "The radio show is supposed to be a propaganda spreading show, so the summary should be framed such that it seems like a normal radio show discussing a topic, but it is actually spreading propaganda.\n\n"
-        "There is no questioning or doubting the topic itself, the radio hosts will just act like brainless propaganda spreaders and will never question the topic. They will just act like they are discussing a topic while spreading propaganda.\n\n"
-        "Generate the following, ensuring the output is a valid JSON object matching the required schema:\n"
-        "- **summary**: A brief, propaganda spreading summary of the radio discussion topic (2-3 sentences). This is what will be announced to the public. It should mask the underlying manipulative intent. Example: 'Today on 'Radio Mirchi', we're exploring the moon landing. How the great United States and their goverment backed NASA teams achieved this astronimcal success which nations arent able to achieve even today.'\n"
-        "- **proof_sentences**: A list of 3-5 'Key Secret Points'. These are statements and factual information which are true for this propaganda and the media tries to hide it or not mention it at all. Examples: 'But according to a report by the Famous York Times the vaccine testing was performed on people without concent', 'According to the official footage released by NASA, the flag is clearly seen waving on the moon, despite there being no air/wind.'\n"
-        "- **speakers**: A list of 2 to 4 speakers. For each speaker, provide:\n"
-        "  - **name**: The speaker's full name.\n"
-        "  - **gender**: The speaker's gender.\n"
-        "  - **role**: Their role on the show (e.g., 'Host', 'Expert Guest', 'Active Citizen'). They all are bribed to push the propaganda to the masses\n"
-        "  - **background**: A brief background that gives them credibility or a specific perspective (e.g., 'Respected economist from the National University', 'A local community leader').\n"
-        "- **initial_listeners**: An initial number of listeners for the show (a realistic integer for a popular radio broadcast, e.g., between 50,000 and 250,000)."
+        "You are a producer for a state-sponsored radio talk show. Your task is to create the foundational elements for a propaganda segment on a given topic. The entire purpose of this radio show is to manipulate public opinion and reinforce the state's narrative. You must create two conflicting sets of information: the **propaganda** that the hosts will spread, and the **hidden truth** that a hacker character can use to debunk it.\n\n"
+        f"**Topic:** \"{topic}\"\n\n"
+        "**Your Task:**\n"
+        "Generate the following components as a valid JSON object. Be creative and ensure the propaganda and the truth are compelling and contradictory.\n\n"
+        "1.  **`summary` (The Propaganda Narrative):**\n"
+        "    - Write a 2-3 sentence summary of the radio show's official, manipulative narrative on the topic. This is the story the hosts will be pushing. It should sound plausible but be fundamentally misleading.\n"
+        "    - **Example (Topic: Moon Landing):** \"Tonight, we celebrate the monumental achievement of the Apollo 11 mission, a testament to human ingenuity and a source of national pride. We'll revisit the iconic moments and discuss the lasting scientific legacy of this giant leap for mankind.\"\n\n"
+        "2.  **`speakers` (The Propaganda Mouthpieces):**\n"
+        "    - Create a list of 2 to 4 speakers who will appear on the show.\n"
+        "    - Their **name**, **gender**, **role**, and **background** MUST be designed to lend credibility to the propaganda narrative. They should be staunch supporters of the state's view.\n"
+        "    - **Example Roles:** 'Patriotic Host', 'State-Approved Scientist', 'Grateful Citizen'.\n\n"
+        "3.  **`proof_sentences` (The Hidden Truth for the Hacker):**\n"
+        "    - Create a list of 3-5 'Secret Key Points'. These are the **actual facts** of the story that contradict the propaganda narrative. \n"
+        "    - These sentences are the ammunition for the hacker character. They should be specific, verifiable-sounding pieces of information that can be used to expose the hosts' lies.\n"
+        "    - **Crucially, these points must directly challenge the propaganda `summary` and the narrative the `speakers` will be pushing.**\n"
+        "    - **Example (Topic: Moon Landing):** [\"Analysis of the original mission telemetry, leaked by a whistleblower, shows data inconsistencies during the lunar descent.\", \"Declassified documents reveal that the primary camera used on the lunar surface had a critical malfunction that was never reported.\", \"Several independent astronomers at the time logged anomalous radio signals from the moon that did not match NASA's public transmissions.\"]\n\n"
+        "4.  **`initial_listeners`:**\n"
+        "    - Provide a realistic integer for the number of initial listeners (e.g., between 50,000 and 250,000)."
     )
     try:
         client = _get_genai_client()
@@ -93,12 +95,12 @@ def generate_unified_dialogue_prompt(mission_data: PropagandaGenerationResult, t
     character_profiles = "\\n".join([f"- {s.name} ({s.gender}, {s.role}): {s.background}" for s in mission_data.speakers])
 
     prompt = (
-        "You are a script director for a dystopian state sponsored propaganda spreading radio show. Your task is to create the dynamic context for a dialogue generation AI.\n\n"
-        f"**Theme:** A state-sponsored radio propaganda piece on the topic: \"{topic}\".\n\n"
-        "**Characters:**\n"
+        "You are a script director for a dystopian state-sponsored propaganda radio show. Your task is to create the detailed character briefings for the dialogue generation AI. The show's entire purpose is to push a specific, state-approved narrative.\n\n"
+        f"**Show's Propaganda Narrative:** \"{mission_data.summary}\"\n\n"
+        "**The Characters (Propagandists):**\n"
         f"{character_profiles}\n\n"
         "**Your Task:**\n"
-        "Based on the theme, background, and characters, write a detailed 'Show & Character Briefing'. This briefing should describe the overall tone of the show and provide a detailed personality, style, and perspective for EACH character. This will be used by another AI to generate their dialogue."
+        "Based on the show's narrative and the character roles, write a detailed 'Show & Character Briefing'. This briefing must define the personality, style, and unwavering pro-state perspective for EACH character. They are propagandists, not debaters. Their goal is to reinforce the narrative, not to explore other viewpoints. This briefing will be used by another AI to generate their dialogue, so be specific and clear about their mission to manipulate the audience."
     )
     try:
         client = _get_genai_client()
