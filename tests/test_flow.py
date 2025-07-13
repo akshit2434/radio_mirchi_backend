@@ -1,25 +1,22 @@
 import asyncio
 import json
+import asyncio
+import json
 import sys
-import numpy as np
-import sounddevice as sd
 import websockets
 import aiohttp
 import queue
 import threading
-from pynput import keyboard
+import sounddevice as sd
+import numpy as np
 
 # --- Configuration ---
 BASE_URL = "http://localhost:8000/api/v1"
 TTS_SAMPLE_RATE = 24000  # Deepgram's Aura TTS output sample rate
-MIC_SAMPLE_RATE = 16000  # Deepgram's STT input sample rate
 CHANNELS = 1
-BLOCKSIZE = 1600  # 100ms of audio at 16kHz
 
 # --- Global State ---
 mission_data_storage = {}
-is_space_pressed = False
-audio_input_q = asyncio.Queue()
 
 def pretty_print_json(data):
     """Prints JSON data in a readable format."""
@@ -71,28 +68,6 @@ def audio_player_thread(audio_q: queue.Queue):
     stream.close()
     print("\n[PLAYER] Audio player thread finished.")
 
-# --- Microphone Input Callback ---
-def audio_input_callback(indata, frames, time, status):
-    """This is called from a separate thread for each audio block."""
-    if status:
-        print(status, file=sys.stderr)
-    if is_space_pressed:
-        # Use the asyncio queue which is thread-safe
-        audio_input_q.put_nowait(bytes(indata))
-
-# --- Keyboard Listener ---
-def on_press(key):
-    global is_space_pressed
-    if key == keyboard.Key.space and not is_space_pressed:
-        is_space_pressed = True
-        print("\n[PTT] Start speaking...")
-
-def on_release(key):
-    global is_space_pressed
-    if key == keyboard.Key.space and is_space_pressed:
-        is_space_pressed = False
-        print("[PTT] Stopped speaking.")
-
 # --- Core Application Logic ---
 async def create_mission(session: aiohttp.ClientSession):
     """Calls the create_mission endpoint."""
@@ -108,7 +83,7 @@ async def create_mission(session: aiohttp.ClientSession):
             if mission_id := str(mission_data.get("_id")):
                 mission_data_storage['current_mission'] = mission_data
                 print("Mission created successfully!")
-                pretty_print_json(mission_data)
+                # pretty_print_json(mission_data) # Removed verbose logging
             else:
                 print("Error: Mission ID not found.")
     except aiohttp.ClientError as e:
@@ -133,79 +108,55 @@ async def poll_mission_status(session: aiohttp.ClientSession, mission_id: str):
             return False
 
 async def handle_websocket_communication(uri: str):
-    """Manages the entire WebSocket lifecycle including audio I/O."""
+    """Manages the entire WebSocket lifecycle including audio I/O and text input."""
     audio_output_q = queue.Queue()
     player = threading.Thread(target=audio_player_thread, args=(audio_output_q,))
     player.start()
-
-    listener = keyboard.Listener(on_press=on_press, on_release=on_release)
-    listener.start()
-
-    print("\n[INFO] Push-to-talk is active. Press and hold SPACE to speak.")
     
     try:
         async with websockets.connect(uri) as websocket:
             print("\n[SUCCESS] WebSocket connection established.")
             
-            # Start the microphone stream
-            with sd.InputStream(samplerate=MIC_SAMPLE_RATE, channels=CHANNELS, dtype='int16', blocksize=BLOCKSIZE, callback=audio_input_callback):
-                
-                # Task to send microphone audio to the server
-                async def microphone_sender():
-                    was_speaking = False
-                    while True:
-                        if is_space_pressed:
-                            if not was_speaking:
-                                await websocket.send(json.dumps({"action": "start_speech"}))
-                                was_speaking = True
-                            try:
-                                audio_chunk = await audio_input_q.get()
-                                await websocket.send(audio_chunk)
-                                audio_input_q.task_done()
-                            except asyncio.QueueEmpty:
-                                await asyncio.sleep(0.01)
-                        else:
-                            if was_speaking:
-                                await websocket.send(json.dumps({"action": "stop_speech"}))
-                                was_speaking = False
-                            await asyncio.sleep(0.05) # Small sleep to prevent busy-waiting
+            # Task to send user text input to the server
+            async def text_sender():
+                while True:
+                    user_input = await asyncio.to_thread(input, "You: ")
+                    if user_input.lower() == "exit":
+                        break
+                    await websocket.send(json.dumps({"user_dialogue": user_input}))
 
-                # Task to receive server messages
-                async def server_receiver():
-                    while True:
-                        try:
-                            message = await websocket.recv()
-                            if isinstance(message, bytes):
-                                audio_output_q.put(message)
-                            elif isinstance(message, str):
-                                data = json.loads(message)
-                                if data.get("status") == "dialogue_end":
-                                    print("[SIGNAL] Received end-of-dialogue signal.")
-                                    while not audio_output_q.empty():
-                                        await asyncio.sleep(0.1)
-                                    print("[SIGNAL] Audio queue empty. Sending 'ready_for_next'.")
-                                    await websocket.send(json.dumps({"action": "ready_for_next"}))
-                        except websockets.exceptions.ConnectionClosed:
-                            print("\n[INFO] WebSocket connection closed by the server.")
-                            break
-                
-                sender_task = asyncio.create_task(microphone_sender())
-                receiver_task = asyncio.create_task(server_receiver())
-                
-                await asyncio.gather(sender_task, receiver_task)
+            # Task to receive server messages
+            async def server_receiver():
+                while True:
+                    try:
+                        message = await websocket.recv()
+                        if isinstance(message, bytes):
+                            audio_output_q.put(message)
+                        elif isinstance(message, str):
+                            data = json.loads(message)
+                            if "awakened_listeners" in data:
+                                print(f"[LISTENERS] Awakened: {data['awakened_listeners']}", end='\r')
+                            # Removed dialogue_end and ready_for_next handling
+                    except websockets.exceptions.ConnectionClosed:
+                        print("\n[INFO] WebSocket connection closed by the server.")
+                        break
+            
+            sender_task = asyncio.create_task(text_sender())
+            receiver_task = asyncio.create_task(server_receiver())
+            
+            await asyncio.gather(sender_task, receiver_task)
 
     except Exception as e:
         print(f"\n[ERROR] An unexpected error occurred: {e}")
     finally:
         audio_output_q.put(None)
         player.join()
-        listener.stop()
         print("[INFO] Client shutdown complete.")
 
 async def main():
     """Main function to run the test script."""
-    print("NOTE: This script requires 'sounddevice', 'numpy', 'aiohttp', and 'pynput'.")
-    print("Install them with: pip install sounddevice numpy aiohttp pynput")
+    print("NOTE: This script requires 'sounddevice', 'numpy', and 'aiohttp'.")
+    print("Install them with: pip install sounddevice numpy aiohttp")
     
     async with aiohttp.ClientSession() as session:
         while True:

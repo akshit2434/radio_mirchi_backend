@@ -36,9 +36,11 @@ async def websocket_endpoint(websocket: WebSocket, mission_id: str):
                     if session:
                         await session.stop_user_speech()
 
-            elif "bytes" in message:
-                if session:
-                    await session.handle_user_audio(message["bytes"])
+                elif action == "user_dialogue":
+                    dialogue_text = data.get("dialogue")
+                    if session and dialogue_text:
+                        print(f"Received 'user_dialogue' from client for mission {mission_id}")
+                        await session.handle_user_dialogue(dialogue_text)
 
     except WebSocketDisconnect:
         print(f"Client disconnected from mission {mission_id}. Cleaning up session.")
