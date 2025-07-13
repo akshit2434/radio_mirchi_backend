@@ -12,23 +12,6 @@ So you want to know how we made AI generate propaganda and then let players figh
 - **Persuasion Tracking**: Keeps score of how many listeners you're "awakening" (spoiler: it's harder than it looks)
 - **Voice Processing**: Understands what you're saying and responds back
 
-## The Flow That Actually Works
-
-```mermaid
-graph TD
-    A[Player Logs In] --> B[POST /api/v1/create_mission]
-    B --> C["Generate Mission (AI thinks hard)"]
-    C --> D["Save to MongoDB - Status: stage1"]
-    D --> E["Background: Generate Dialogue Prompt"]
-    E --> F["Update Status: stage2"]
-    F --> G["Client Polls: Are we ready yet?"]
-    G --> H["WebSocket Connection (Finally!)"]
-    H --> I["Real-time Dialogue Loop"]
-    I --> J["TTS Audio Streaming"]
-    J --> K["Player Interrupts (Because they always do)"]
-    K --> I
-```
-
 ## 🛠️ The Tech Stack (Or: What we Used So You Don't Have To)
 
 ### Core Framework
